@@ -13,11 +13,11 @@
 #
 # Author: Nicolas Audibert, LPP UMR7018 CNRS & Sorbonne Nouvelle, February 2022 - last modified August 2024
 form voice_analysis_sliding_window
-	folder sndFilesFolder .
+	folder sndFilesFolder 
 	word sndFilesExtension .wav
-	folder tgFilesFolder_leave_empty_if_irrelevant
+	boolean label_frames_according_to_TextGrid_info 0
+	sentence tgFilesFolder_if_different 
 	natural targetTierIndex 1
-	sentence sndFilesSuffix 
 	sentence resultsFileBasename sliding_window_analysis_f0_jitter_shimmer_HNR
 	infile parameters_file voice_analysis_sliding_window_default_parameters.txt
 	natural windowLengthMs 30
@@ -74,290 +74,311 @@ else
 	removeObject: parametersTable
 
 	# Get the list of sound files in the specified folder that match the regular expression
-	sndFolderRegex$ = sndFilesFolder$+ "/*" + sndFilesSuffix$ + sndFilesExtension$
+	sndFolderRegex$ = sndFilesFolder$+ "/*" + sndFilesExtension$
 	filesList = Create Strings as file list: "fileslist", sndFolderRegex$
 	nFiles = Get number of strings
 
-	# Get the results file path from the basename and window duration parameters
-	resultsFilePath$ = resultsFileBasename$ + "_" + fixed$(windowLengthMs,0) + "ms_overlap" + fixed$(windowOverlapMs,0) + "ms.txt"
+	if nFiles = 0
+		appendInfoLine: newline$ + "No matching sound files found in folder ", sndFilesFolder$
+    else
+		# Get the results file path from the basename and window duration parameters
+		resultsFilePath$ = resultsFileBasename$ + "_" + fixed$(windowLengthMs,0) + "ms_overlap" + fixed$(windowOverlapMs,0) + "ms.txt"
 
-	# Write the header of the extracts reference file
-	writeFile: resultsFilePath$, "soundFile", tab$, "windowStartTime", tab$, "windowEndTime", tab$, "intervalLabel"
-	if extract_F0
-		appendFile: resultsFilePath$, tab$, "F0"
-	endif
-	if extract_intensity
-		appendFile: resultsFilePath$, tab$, "intensity"
-	endif
-	if extract_jitter
-		appendFile: resultsFilePath$, tab$, "jitter_local", tab$, "jitter_local_abs", tab$, "jitter_rap", tab$, "jitter_ppq5", tab$, "jitter_ddp"
-	endif
-	if extract_shimmer
-		appendFile: resultsFilePath$, tab$, "shimmer_local", tab$, "shimmer_local_dB", tab$, "shimmer_apq3", tab$, "shimmer_apq5", tab$, "shimmer_apq11", tab$, "shimmer_dda"
-	endif
-	if extract_HNR
-		appendFile: resultsFilePath$, tab$, "HNR"
-	endif
-	if extract_ZCR
-		appendFile: resultsFilePath$, tab$, "ZCRwindow", tab$, "ZCRperiod"
-	endif
-	if extract_CPP
-		appendFile: resultsFilePath$, tab$, "CPP"
-	endif
-	if extract_CPPS
-		appendFile: resultsFilePath$, tab$, "CPPS"
-	endif
-	if extract_energy_bands
-		appendFile: resultsFilePath$, tab$, "energy0_1kHz", tab$, "energy1_4kHz", tab$, "energy0_4kHz", tab$, "energy4_8kHz", tab$, "energy0_5kHz", tab$, "energy5_8kHz"
-	endif
-	appendFile: resultsFilePath$, newline$
-
-	# Convert times to seconds
-	windowLengthSec = windowLengthMs/1000
-	windowOverlapSec = windowOverlapMs/1000
-
-	# Sound pressure-related constant needed to convert energy values in frequency bands (in Pa^2.s-1) to intensity values in dB
-	p0 = 2e-5
-	p0squared = p0*p0
-
-	# Loop over every sound files
-	for iFile from 1 to nFiles
-		# Read the sound
-		selectObject: filesList
-		currentSnd$ = Get string: iFile
-		appendInfoLine: "Processing file ", currentSnd$
-		currentSndPath$ = sndFilesFolder$+ "/" + currentSnd$
-
-		currentTG$ = currentSnd$ - ".wav" + ".TextGrid"
-		currentTGpath$ = tgFilesFolder_leave_empty_if_irrelevant$ + "/" + currentTG$
-
-		# Nowarn to avoid warning display in case mp3 files are used (use wav files instead if possible)
-		snd = nowarn Read from file: currentSndPath$
-
-		tg = Read from file: currentTGpath$
-
-		# Get sampling frequency and number of channels (needed for zero padding) and create silence to be added before and after each frame in intensity analysis
-		selectObject: snd
-		currentSndSamplingFrequency = Get sampling frequency
-   		currentSndNchannels = Get number of channels
-   		silence = Create Sound from formula: "silence", currentSndNchannels, 0, zeroPaddingDurationIntensityAnalysisMs/1000, currentSndSamplingFrequency, "0"
-
-		# Define times according to selected strategy
-		selectObject: snd
-		sndDuration = Get total duration
-		sndDurationMs = sndDuration * 1000
-		nFrames = 1 + floor((sndDurationMs-windowLengthMs)/windowOverlapMs)
-		nFramesProcessedBetweenDotDisplay = floor(nFrames/5)
-		appendInfo: tab$, sndDuration, " sec, ", nFrames, " frames "
-		analyzedSignalTimeSec = windowLengthSec + (nFrames-1)*windowOverlapSec
-		if windowPositionStrategy$="start"
-			currentFrameStartTime = 0
-		elsif windowPositionStrategy$="mid"
-			currentFrameStartTime = (sndDuration-analyzedSignalTimeSec)/2
-		else
-			# windowPositionStrategy$="end"
-			currentFrameStartTime = analyzedSignalTimeSec-sndDuration
+		# Check if a specific folder is defined for TextGrid files, if not use the same as sndFilesFolder
+		if tgFilesFolder_if_different$ == ""
+			tgFilesFolder_if_different$ = sndFilesFolder$
 		endif
 
-		for iFrame from 1 to nFrames
-			currentFrameEndTime = currentFrameStartTime + windowLengthSec
+		# Write the header of the extracts reference file
+		writeFile: resultsFilePath$, "soundFile", tab$, "windowStartTime", tab$, "windowEndTime"
+		if label_frames_according_to_TextGrid_info
+			appendFile: resultsFilePath$, tab$, "intervalLabel"
+		endif
+		if extract_F0
+			appendFile: resultsFilePath$, tab$, "F0"
+		endif
+		if extract_intensity
+			appendFile: resultsFilePath$, tab$, "intensity"
+		endif
+		if extract_jitter
+			appendFile: resultsFilePath$, tab$, "jitter_local", tab$, "jitter_local_abs", tab$, "jitter_rap", tab$, "jitter_ppq5", tab$, "jitter_ddp"
+		endif
+		if extract_shimmer
+			appendFile: resultsFilePath$, tab$, "shimmer_local", tab$, "shimmer_local_dB", tab$, "shimmer_apq3", tab$, "shimmer_apq5", tab$, "shimmer_apq11", tab$, "shimmer_dda"
+		endif
+		if extract_HNR
+			appendFile: resultsFilePath$, tab$, "HNR"
+		endif
+		if extract_ZCR
+			appendFile: resultsFilePath$, tab$, "ZCRwindow", tab$, "ZCRperiod"
+		endif
+		if extract_CPP
+			appendFile: resultsFilePath$, tab$, "CPP"
+		endif
+		if extract_CPPS
+			appendFile: resultsFilePath$, tab$, "CPPS"
+		endif
+		if extract_energy_bands
+			appendFile: resultsFilePath$, tab$, "energy0_1kHz", tab$, "energy1_4kHz", tab$, "energy0_4kHz", tab$, "energy4_8kHz", tab$, "energy0_5kHz", tab$, "energy5_8kHz"
+		endif
+		appendFile: resultsFilePath$, newline$
+
+		# Convert times to seconds
+		windowLengthSec = windowLengthMs/1000
+		windowOverlapSec = windowOverlapMs/1000
+
+		# Sound pressure-related constant needed to convert energy values in frequency bands (in Pa^2.s-1) to intensity values in dB
+		p0 = 2e-5
+		p0squared = p0*p0
+
+		# Loop over every sound files
+		for iFile from 1 to nFiles
+			# Read the sound
+			selectObject: filesList
+			currentSnd$ = Get string: iFile
+			appendInfoLine: "Processing file ", currentSnd$
+			currentSndPath$ = sndFilesFolder$+ "/" + currentSnd$
+
+			# Nowarn to avoid warning display in case mp3 files are used (use wav files instead if possible)
+			snd = nowarn Read from file: currentSndPath$
+
+			if label_frames_according_to_TextGrid_info
+				currentTG$ = currentSnd$ - ".wav" + ".TextGrid"
+				currentTGpath$ = tgFilesFolder_if_different$ + "/" + currentTG$
+				tg = Read from file: currentTGpath$
+			endif
+
+			# Get sampling frequency and number of channels (needed for zero padding) and create silence to be added before and after each frame in intensity analysis
 			selectObject: snd
-			currentFrameSignal = noprogress Extract part: currentFrameStartTime, currentFrameEndTime, windowShape$, 1, "no"
+			currentSndSamplingFrequency = Get sampling frequency
+	   		currentSndNchannels = Get number of channels
+	   		silence = Create Sound from formula: "silence", currentSndNchannels, 0, zeroPaddingDurationIntensityAnalysisMs/1000, currentSndSamplingFrequency, "0"
 
-			currentFrameMidTime = currentFrameStartTime + windowLengthSec/2
-			selectObject: tg
-			currentIntervalIndex = Get interval at time: targetTierIndex, currentFrameMidTime
-			currentIntervLabel$ = Get label of interval: targetTierIndex, currentIntervalIndex
-
-			###################
-			# Perform acoustic analyses and extract values from computed objects
-
-			if extract_F0 or extract_jitter or extract_shimmer
-				# F0
-				selectObject: currentFrameSignal
-				currentFramePitchCC = noprogress To Pitch (cc): timeStepF0detection, minF0, f0DetectionMaxNumberCandidates, f0DetectionVeryAccurateMode$, f0DetectionSilenceThreshold, f0DetectionVoicingThreshold, f0DetectionOctaveCost, f0DetectionOctaveJumpCost, f0DetectionVoicedUnvoicedCost, maxF0
-				selectObject: currentFramePitchCC
-				currentFrameF0 = Get mean: 0, 0, "Hertz"
-
-				selectObject: currentFrameSignal
-				plusObject: currentFramePitchCC
-				currentFramePP = noprogress To PointProcess (cc)
+			# Define times according to selected strategy
+			selectObject: snd
+			sndDuration = Get total duration
+			sndDurationMs = sndDuration * 1000
+			nFrames = 1 + floor((sndDurationMs-windowLengthMs)/windowOverlapMs)
+			nFramesProcessedBetweenDotDisplay = floor(nFrames/5)
+			appendInfo: tab$, sndDuration, " sec, ", nFrames, " frames "
+			analyzedSignalTimeSec = windowLengthSec + (nFrames-1)*windowOverlapSec
+			if windowPositionStrategy$="start"
+				currentFrameStartTime = 0
+			elsif windowPositionStrategy$="mid"
+				currentFrameStartTime = (sndDuration-analyzedSignalTimeSec)/2
+			else
+				# windowPositionStrategy$="end"
+				currentFrameStartTime = analyzedSignalTimeSec-sndDuration
 			endif
 
-			if extract_intensity
-				# Intensity
-				# first, add silence (zero padding) before and after the target frame to make sure it's long enough for analysis
-				selectObject: silence
-				silenceCopy = Copy: "currentFrameSignalCopy"
-				selectObject: currentFrameSignal
-				currentFrameSignalCopy = Copy: "currentFrameSignalCopy"
-				selectObject: silence
-				silenceCopy2 = Copy: "currentFrameSignalCopy2"
-				selectObject: silenceCopy
-				plusObject: currentFrameSignalCopy
-				plusObject: silenceCopy2
-				currentFrameSignalZeroPadded = Concatenate
-				# extract intensity in zero-padded frame
-				selectObject: currentFrameSignalZeroPadded
-				currentFrameIntensityObject = To Intensity: minF0, timeStepIntensityComputation, "no"
-				selectObject: currentFrameIntensityObject
-				currentFrameIntensity = Get mean: 0, 0, averagingMethodIntensity$
-				removeObject: silenceCopy, currentFrameSignalCopy, silenceCopy2, currentFrameSignalZeroPadded, currentFrameIntensityObject
-			endif
-
-			if extract_shimmer
-				# Jitter and shimmer
-				selectObject: currentFramePP
-				currentFrameJitterLocal = Get jitter (local): 0, 0, jitterShimmerShortestPeriod, jitterShimmerLongestPeriod, jitterShimmerMaximumPeriodFactor
-				currentFrameJitterLocalAbs = Get jitter (local, absolute): 0, 0, jitterShimmerShortestPeriod, jitterShimmerLongestPeriod, jitterShimmerMaximumPeriodFactor
-				currentFrameJitterRap = Get jitter (rap): 0, 0, jitterShimmerShortestPeriod, jitterShimmerLongestPeriod, jitterShimmerMaximumPeriodFactor
-				currentFrameJitterPpq5 = Get jitter (ppq5): 0, 0, jitterShimmerShortestPeriod, jitterShimmerLongestPeriod, jitterShimmerMaximumPeriodFactor
-				currentFrameJitterDdp = Get jitter (ddp): 0, 0, jitterShimmerShortestPeriod, jitterShimmerLongestPeriod, jitterShimmerMaximumPeriodFactor
-			endif
-			
-			if extract_shimmer
+			for iFrame from 1 to nFrames
+				currentFrameEndTime = currentFrameStartTime + windowLengthSec
 				selectObject: snd
-				plusObject: currentFramePP
-				currentFrameShimmerLocal = Get shimmer (local): 0, 0, jitterShimmerShortestPeriod, jitterShimmerLongestPeriod, jitterShimmerMaximumPeriodFactor, shimmerMaximumAmplitudeFactor
-				currentFrameShimmerLocal_dB = Get shimmer (local_dB): 0, 0, jitterShimmerShortestPeriod, jitterShimmerLongestPeriod, jitterShimmerMaximumPeriodFactor, shimmerMaximumAmplitudeFactor
-				currentFrameShimmerApq3 = Get shimmer (apq3): 0, 0, jitterShimmerShortestPeriod, jitterShimmerLongestPeriod, jitterShimmerMaximumPeriodFactor, shimmerMaximumAmplitudeFactor
-				currentFrameShimmerApq5 = Get shimmer (apq5): 0, 0, jitterShimmerShortestPeriod, jitterShimmerLongestPeriod, jitterShimmerMaximumPeriodFactor, shimmerMaximumAmplitudeFactor
-				currentFrameShimmerApq11 = Get shimmer (apq11): 0, 0, jitterShimmerShortestPeriod, jitterShimmerLongestPeriod, jitterShimmerMaximumPeriodFactor, shimmerMaximumAmplitudeFactor
-				currentFrameShimmerDda = Get shimmer (dda): 0, 0, jitterShimmerShortestPeriod, jitterShimmerLongestPeriod, jitterShimmerMaximumPeriodFactor, shimmerMaximumAmplitudeFactor
-			endif
-			
-			if extract_HNR
-				# HNR
-				selectObject: currentFrameSignal
-				currentFrameHarmonicity = noprogress To Harmonicity (cc): timeStepHNRextraction, minF0, silenceTresholdHNRextraction, periodsPerWindowHNRextraction
+				currentFrameSignal = noprogress Extract part: currentFrameStartTime, currentFrameEndTime, windowShape$, 1, "no"
 
-				selectObject: currentFrameHarmonicity
-				currentFrameHNR = Get mean: 0, 0
-
-				removeObject: currentFrameHarmonicity
-			endif
-			
-			if extract_ZCR
-				# ZCR
-				selectObject: currentFrameSignal
-				currentFrameZCR_PP = noprogress To PointProcess (zeroes): 1, includeRaisingPartsInZeroCrossingRateComputation$, includeFallingPartsInZeroCrossingRateComputation$
-				currentFrameZCR_TT = Up to TextTier: ""
-				currentFrameZCR_TG = Into TextGrid
-				removeObject: currentFrameZCR_PP, currentFrameZCR_TT
-
-				selectObject: currentFrameZCR_TG
-				nCrossingPoints = Get number of points: 1
-				currentFrameZCR = nCrossingPoints / windowLengthSec
-
-				# Get F0 on a longer window
-				currentF0WinStartTime = currentFrameMidTime - windowLengthF0computationMilliseconds
-				currentF0WinEndTime = currentFrameMidTime + windowLengthF0computationMilliseconds
-				if currentF0WinStartTime<0
-					currentF0WinStartTime = 0
+				currentFrameMidTime = currentFrameStartTime + windowLengthSec/2
+				if label_frames_according_to_TextGrid_info
+					selectObject: tg
+					currentIntervalIndex = Get interval at time: targetTierIndex, currentFrameMidTime
+					currentIntervLabel$ = Get label of interval: targetTierIndex, currentIntervalIndex
 				endif
-				if currentF0WinEndTime>sndDuration
-					currentF0WinEndTime = sndDuration
+
+				###################
+				# Perform acoustic analyses and extract values from computed objects
+
+				if extract_F0 or extract_jitter or extract_shimmer
+					# F0
+					selectObject: currentFrameSignal
+					currentFramePitchCC = noprogress To Pitch (cc): timeStepF0detection, minF0, f0DetectionMaxNumberCandidates, f0DetectionVeryAccurateMode$, f0DetectionSilenceThreshold, f0DetectionVoicingThreshold, f0DetectionOctaveCost, f0DetectionOctaveJumpCost, f0DetectionVoicedUnvoicedCost, maxF0
+					selectObject: currentFramePitchCC
+					currentFrameF0 = Get mean: 0, 0, "Hertz"
+
+					selectObject: currentFrameSignal
+					plusObject: currentFramePitchCC
+					currentFramePP = noprogress To PointProcess (cc)
 				endif
-				selectObject: snd
-				currentF0WinSignal = noprogress Extract part: currentF0WinStartTime, currentF0WinEndTime, windowShape$, 1, "yes"
-				pitchF0Win  = noprogress To Pitch: timeStepF0detection, minF0, maxF0
-				f0ValInF0WinCenter = Get value at time: currentFrameMidTime, "Hertz", "linear"
 
-				nPeriodsInWindow = windowLengthSec * f0ValInF0WinCenter
-				currentFramePeriodwiseZCR = nCrossingPoints / nPeriodsInWindow
+				if extract_intensity
+					# Intensity
+					# first, add silence (zero padding) before and after the target frame to make sure it's long enough for analysis
+					selectObject: silence
+					silenceCopy = Copy: "currentFrameSignalCopy"
+					selectObject: currentFrameSignal
+					currentFrameSignalCopy = Copy: "currentFrameSignalCopy"
+					selectObject: silence
+					silenceCopy2 = Copy: "currentFrameSignalCopy2"
+					selectObject: silenceCopy
+					plusObject: currentFrameSignalCopy
+					plusObject: silenceCopy2
+					currentFrameSignalZeroPadded = Concatenate
+					# extract intensity in zero-padded frame
+					selectObject: currentFrameSignalZeroPadded
+					currentFrameIntensityObject = To Intensity: minF0, timeStepIntensityComputation, "no"
+					selectObject: currentFrameIntensityObject
+					currentFrameIntensity = Get mean: 0, 0, averagingMethodIntensity$
+					removeObject: silenceCopy, currentFrameSignalCopy, silenceCopy2, currentFrameSignalZeroPadded, currentFrameIntensityObject
+				endif
 
-				# removeObject: currentF0WinSignal, pitchF0Win
-				removeObject: currentFrameZCR_TG, currentF0WinSignal, pitchF0Win
-			endif
-			
-			if extract_CPP
-				# CPP
-				selectObject: currentFrameSignal
-				currentFrameSpectrum = noprogress To Spectrum: "yes"
-				currentFramePowerCepstrum = noprogress To PowerCepstrum
+				if extract_shimmer
+					# Jitter and shimmer
+					selectObject: currentFramePP
+					currentFrameJitterLocal = Get jitter (local): 0, 0, jitterShimmerShortestPeriod, jitterShimmerLongestPeriod, jitterShimmerMaximumPeriodFactor
+					currentFrameJitterLocalAbs = Get jitter (local, absolute): 0, 0, jitterShimmerShortestPeriod, jitterShimmerLongestPeriod, jitterShimmerMaximumPeriodFactor
+					currentFrameJitterRap = Get jitter (rap): 0, 0, jitterShimmerShortestPeriod, jitterShimmerLongestPeriod, jitterShimmerMaximumPeriodFactor
+					currentFrameJitterPpq5 = Get jitter (ppq5): 0, 0, jitterShimmerShortestPeriod, jitterShimmerLongestPeriod, jitterShimmerMaximumPeriodFactor
+					currentFrameJitterDdp = Get jitter (ddp): 0, 0, jitterShimmerShortestPeriod, jitterShimmerLongestPeriod, jitterShimmerMaximumPeriodFactor
+				endif
+				
+				if extract_shimmer
+					selectObject: snd
+					plusObject: currentFramePP
+					currentFrameShimmerLocal = Get shimmer (local): 0, 0, jitterShimmerShortestPeriod, jitterShimmerLongestPeriod, jitterShimmerMaximumPeriodFactor, shimmerMaximumAmplitudeFactor
+					currentFrameShimmerLocal_dB = Get shimmer (local_dB): 0, 0, jitterShimmerShortestPeriod, jitterShimmerLongestPeriod, jitterShimmerMaximumPeriodFactor, shimmerMaximumAmplitudeFactor
+					currentFrameShimmerApq3 = Get shimmer (apq3): 0, 0, jitterShimmerShortestPeriod, jitterShimmerLongestPeriod, jitterShimmerMaximumPeriodFactor, shimmerMaximumAmplitudeFactor
+					currentFrameShimmerApq5 = Get shimmer (apq5): 0, 0, jitterShimmerShortestPeriod, jitterShimmerLongestPeriod, jitterShimmerMaximumPeriodFactor, shimmerMaximumAmplitudeFactor
+					currentFrameShimmerApq11 = Get shimmer (apq11): 0, 0, jitterShimmerShortestPeriod, jitterShimmerLongestPeriod, jitterShimmerMaximumPeriodFactor, shimmerMaximumAmplitudeFactor
+					currentFrameShimmerDda = Get shimmer (dda): 0, 0, jitterShimmerShortestPeriod, jitterShimmerLongestPeriod, jitterShimmerMaximumPeriodFactor, shimmerMaximumAmplitudeFactor
+				endif
+				
+				if extract_HNR
+					# HNR
+					selectObject: currentFrameSignal
+					currentFrameHarmonicity = noprogress To Harmonicity (cc): timeStepHNRextraction, minF0, silenceTresholdHNRextraction, periodsPerWindowHNRextraction
 
-				selectObject: currentFramePowerCepstrum
-				currentFrameCPP = Get peak prominence: minF0forPeakProminenceComputation, maxF0forPeakProminenceComputation, interpolationMethodPeakProminenceComputation$, trendLineQuefrencyMinValuePeakProminenceComputation, trendLineQuefrencyMaxValuePeakProminenceComputation, trendTypePeakProminenceComputation$, fitMethodPeakProminenceComputation$
-				removeObject: currentFrameSpectrum, currentFramePowerCepstrum
-			endif
-			
-			if extract_CPPS
-				# CPPS
-				selectObject: currentFrameSignal
-				currentFramePowerCepstrogram = noprogress To PowerCepstrogram: minF0, timeStepPowerCepstrogram, maxFrequencyPowerCepstrogram, preEmphasisStartFrequencyPowerCepstrogram
+					selectObject: currentFrameHarmonicity
+					currentFrameHNR = Get mean: 0, 0
 
-				selectObject: currentFramePowerCepstrogram
-				currentFrameCPPS = Get CPPS: subtractTrendBeforeSmoothingCPPS$, timeAveragingWindowCPPS, quefrencyAveragingWindowCPPS, minF0forPeakProminenceComputation, maxF0forPeakProminenceComputation, peakSearchToleranceFactorCPPS, interpolationMethodPeakProminenceComputation$, trendLineQuefrencyMinValuePeakProminenceComputation, trendLineQuefrencyMaxValuePeakProminenceComputation, trendTypePeakProminenceComputation$, fitMethodPeakProminenceComputation$
-				removeObject: currentFramePowerCepstrogram
-			endif
-			
-			if extract_energy_bands
-				# Energy in frequency bands
-				selectObject: currentFrameSignal
-				currentFrameSpectrum = noprogress To Spectrum: "yes"
-				selectObject: currentFrameSpectrum
-				current_energy_value_Pa2s_0_1kHz = Get band energy: 0, 1000
-				currentFrameEnergy0_1kHz = 10*log10(current_energy_value_Pa2s_0_1kHz/(windowLengthSec*p0squared))
-				current_energy_value_Pa2s_1_4kHz = Get band energy: 1000, 4000
-				currentFrameEnergy1_4kHz = 10*log10(current_energy_value_Pa2s_1_4kHz/(windowLengthSec*p0squared))
-				current_energy_value_Pa2s_0_4kHz = Get band energy: 0, 4000
-				currentFrameEnergy0_4kHz = 10*log10(current_energy_value_Pa2s_0_4kHz/(windowLengthSec*p0squared))
-				current_energy_value_Pa2s_4_8kHz = Get band energy: 4000, 8000
-				currentFrameEnergy4_8kHz = 10*log10(current_energy_value_Pa2s_4_8kHz/(windowLengthSec*p0squared))
-				current_energy_value_Pa2s_0_5kHz = Get band energy: 0, 5000
-				currentFrameEnergy0_5kHz = 10*log10(current_energy_value_Pa2s_0_5kHz/(windowLengthSec*p0squared))
-				current_energy_value_Pa2s_5_8kHz = Get band energy: 5000, 8000
-				currentFrameEnergy5_8kHz = 10*log10(current_energy_value_Pa2s_5_8kHz/(windowLengthSec*p0squared))
-				removeObject: currentFrameSpectrum
-			endif
+					removeObject: currentFrameHarmonicity
+				endif
+				
+				if extract_ZCR
+					# ZCR
+					selectObject: currentFrameSignal
+					currentFrameZCR_PP = noprogress To PointProcess (zeroes): 1, includeRaisingPartsInZeroCrossingRateComputation$, includeFallingPartsInZeroCrossingRateComputation$
+					currentFrameZCR_TT = Up to TextTier: ""
+					currentFrameZCR_TG = Into TextGrid
+					removeObject: currentFrameZCR_PP, currentFrameZCR_TT
 
-			###################
-			# Write extracted values to the results file
-			appendFile: resultsFilePath$, currentSnd$, tab$, currentFrameStartTime, tab$, currentFrameEndTime, tab$, currentIntervLabel$
-			if extract_F0
-				appendFile: resultsFilePath$, tab$, currentFrameF0
-			endif
-			if extract_intensity
-				appendFile: resultsFilePath$, tab$, currentFrameIntensity
-			endif
-			if extract_jitter
-				appendFile: resultsFilePath$, tab$, currentFrameJitterLocal, tab$, currentFrameJitterLocalAbs, tab$, currentFrameJitterRap, tab$, currentFrameJitterPpq5, tab$, currentFrameJitterDdp
-			endif
-			if extract_shimmer
-				appendFile: resultsFilePath$, tab$, currentFrameShimmerLocal, tab$, currentFrameShimmerLocal_dB, tab$, currentFrameShimmerApq3, tab$, currentFrameShimmerApq5, tab$, currentFrameShimmerApq11, tab$, currentFrameShimmerDda
-			endif
-			if extract_HNR
-				appendFile: resultsFilePath$, tab$, currentFrameHNR
-			endif
-			if extract_ZCR
-				appendFile: resultsFilePath$, tab$, currentFrameZCR, tab$, currentFramePeriodwiseZCR
-			endif
-			if extract_CPP
-				appendFile: resultsFilePath$, tab$, currentFrameCPP
-			endif
-			if extract_CPPS
-				appendFile: resultsFilePath$, tab$, currentFrameCPPS
-			endif
-			if extract_energy_bands
-				appendFileLine: resultsFilePath$, tab$, currentFrameEnergy0_1kHz, tab$, currentFrameEnergy1_4kHz, tab$, currentFrameEnergy0_4kHz, tab$, currentFrameEnergy4_8kHz, tab$, currentFrameEnergy0_5kHz, tab$, currentFrameEnergy5_8kHz
-			endif
-			appendFile: resultsFilePath$, newline$
+					selectObject: currentFrameZCR_TG
+					nCrossingPoints = Get number of points: 1
+					currentFrameZCR = nCrossingPoints / windowLengthSec
 
-			# Clean-up: remove temporary objects
-			removeObject: currentFrameSignal
-			if extract_F0 or extract_jitter or extract_shimmer
-				removeObject: currentFramePitchCC, currentFramePP
-			endif
-			
-			# Update frame start time to process next frame
-			currentFrameStartTime = currentFrameStartTime + windowOverlapSec
-			if iFrame mod nFramesProcessedBetweenDotDisplay = 0
-				appendInfo: "."
+					# Get F0 on a longer window
+					currentF0WinStartTime = currentFrameMidTime - windowLengthF0computationMilliseconds
+					currentF0WinEndTime = currentFrameMidTime + windowLengthF0computationMilliseconds
+					if currentF0WinStartTime<0
+						currentF0WinStartTime = 0
+					endif
+					if currentF0WinEndTime>sndDuration
+						currentF0WinEndTime = sndDuration
+					endif
+					selectObject: snd
+					currentF0WinSignal = noprogress Extract part: currentF0WinStartTime, currentF0WinEndTime, windowShape$, 1, "yes"
+					pitchF0Win  = noprogress To Pitch: timeStepF0detection, minF0, maxF0
+					f0ValInF0WinCenter = Get value at time: currentFrameMidTime, "Hertz", "linear"
+
+					nPeriodsInWindow = windowLengthSec * f0ValInF0WinCenter
+					currentFramePeriodwiseZCR = nCrossingPoints / nPeriodsInWindow
+
+					# removeObject: currentF0WinSignal, pitchF0Win
+					removeObject: currentFrameZCR_TG, currentF0WinSignal, pitchF0Win
+				endif
+				
+				if extract_CPP
+					# CPP
+					selectObject: currentFrameSignal
+					currentFrameSpectrum = noprogress To Spectrum: "yes"
+					currentFramePowerCepstrum = noprogress To PowerCepstrum
+
+					selectObject: currentFramePowerCepstrum
+					currentFrameCPP = Get peak prominence: minF0forPeakProminenceComputation, maxF0forPeakProminenceComputation, interpolationMethodPeakProminenceComputation$, trendLineQuefrencyMinValuePeakProminenceComputation, trendLineQuefrencyMaxValuePeakProminenceComputation, trendTypePeakProminenceComputation$, fitMethodPeakProminenceComputation$
+					removeObject: currentFrameSpectrum, currentFramePowerCepstrum
+				endif
+				
+				if extract_CPPS
+					# CPPS
+					selectObject: currentFrameSignal
+					currentFramePowerCepstrogram = noprogress To PowerCepstrogram: minF0, timeStepPowerCepstrogram, maxFrequencyPowerCepstrogram, preEmphasisStartFrequencyPowerCepstrogram
+
+					selectObject: currentFramePowerCepstrogram
+					currentFrameCPPS = Get CPPS: subtractTrendBeforeSmoothingCPPS$, timeAveragingWindowCPPS, quefrencyAveragingWindowCPPS, minF0forPeakProminenceComputation, maxF0forPeakProminenceComputation, peakSearchToleranceFactorCPPS, interpolationMethodPeakProminenceComputation$, trendLineQuefrencyMinValuePeakProminenceComputation, trendLineQuefrencyMaxValuePeakProminenceComputation, trendTypePeakProminenceComputation$, fitMethodPeakProminenceComputation$
+					removeObject: currentFramePowerCepstrogram
+				endif
+				
+				if extract_energy_bands
+					# Energy in frequency bands
+					selectObject: currentFrameSignal
+					currentFrameSpectrum = noprogress To Spectrum: "yes"
+					selectObject: currentFrameSpectrum
+					current_energy_value_Pa2s_0_1kHz = Get band energy: 0, 1000
+					currentFrameEnergy0_1kHz = 10*log10(current_energy_value_Pa2s_0_1kHz/(windowLengthSec*p0squared))
+					current_energy_value_Pa2s_1_4kHz = Get band energy: 1000, 4000
+					currentFrameEnergy1_4kHz = 10*log10(current_energy_value_Pa2s_1_4kHz/(windowLengthSec*p0squared))
+					current_energy_value_Pa2s_0_4kHz = Get band energy: 0, 4000
+					currentFrameEnergy0_4kHz = 10*log10(current_energy_value_Pa2s_0_4kHz/(windowLengthSec*p0squared))
+					current_energy_value_Pa2s_4_8kHz = Get band energy: 4000, 8000
+					currentFrameEnergy4_8kHz = 10*log10(current_energy_value_Pa2s_4_8kHz/(windowLengthSec*p0squared))
+					current_energy_value_Pa2s_0_5kHz = Get band energy: 0, 5000
+					currentFrameEnergy0_5kHz = 10*log10(current_energy_value_Pa2s_0_5kHz/(windowLengthSec*p0squared))
+					current_energy_value_Pa2s_5_8kHz = Get band energy: 5000, 8000
+					currentFrameEnergy5_8kHz = 10*log10(current_energy_value_Pa2s_5_8kHz/(windowLengthSec*p0squared))
+					removeObject: currentFrameSpectrum
+				endif
+
+				###################
+				# Write extracted values to the results file
+				appendFile: resultsFilePath$, currentSnd$, tab$, currentFrameStartTime, tab$, currentFrameEndTime
+				if label_frames_according_to_TextGrid_info
+					appendFile: resultsFilePath$, tab$, currentIntervLabel$
+				endif
+				if extract_F0
+					appendFile: resultsFilePath$, tab$, currentFrameF0
+				endif
+				if extract_intensity
+					appendFile: resultsFilePath$, tab$, currentFrameIntensity
+				endif
+				if extract_jitter
+					appendFile: resultsFilePath$, tab$, currentFrameJitterLocal, tab$, currentFrameJitterLocalAbs, tab$, currentFrameJitterRap, tab$, currentFrameJitterPpq5, tab$, currentFrameJitterDdp
+				endif
+				if extract_shimmer
+					appendFile: resultsFilePath$, tab$, currentFrameShimmerLocal, tab$, currentFrameShimmerLocal_dB, tab$, currentFrameShimmerApq3, tab$, currentFrameShimmerApq5, tab$, currentFrameShimmerApq11, tab$, currentFrameShimmerDda
+				endif
+				if extract_HNR
+					appendFile: resultsFilePath$, tab$, currentFrameHNR
+				endif
+				if extract_ZCR
+					appendFile: resultsFilePath$, tab$, currentFrameZCR, tab$, currentFramePeriodwiseZCR
+				endif
+				if extract_CPP
+					appendFile: resultsFilePath$, tab$, currentFrameCPP
+				endif
+				if extract_CPPS
+					appendFile: resultsFilePath$, tab$, currentFrameCPPS
+				endif
+				if extract_energy_bands
+					appendFileLine: resultsFilePath$, tab$, currentFrameEnergy0_1kHz, tab$, currentFrameEnergy1_4kHz, tab$, currentFrameEnergy0_4kHz, tab$, currentFrameEnergy4_8kHz, tab$, currentFrameEnergy0_5kHz, tab$, currentFrameEnergy5_8kHz
+				endif
+				appendFile: resultsFilePath$, newline$
+
+				# Clean-up: remove temporary objects
+				removeObject: currentFrameSignal
+				if extract_F0 or extract_jitter or extract_shimmer
+					removeObject: currentFramePitchCC, currentFramePP
+				endif
+				
+				# Update frame start time to process next frame
+				currentFrameStartTime = currentFrameStartTime + windowOverlapSec
+				if iFrame mod nFramesProcessedBetweenDotDisplay = 0
+					appendInfo: "."
+				endif
+			endfor
+			appendInfo: newline$
+
+			removeObject: snd, silence
+			if label_frames_according_to_TextGrid_info
+				removeObject: tg
 			endif
 		endfor
-		appendInfo: newline$
-
-		removeObject: snd, silence, tg
-	endfor
-
+	endif
 	removeObject: filesList
+endif
